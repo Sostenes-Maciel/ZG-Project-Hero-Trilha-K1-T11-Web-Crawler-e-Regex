@@ -1,0 +1,26 @@
+plugins {
+    id 'groovy'
+}
+
+group = 'com.zg.acelera'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'io.github.http-builder-ng:http-builder-ng-core:1.0.4'
+    implementation 'org.jsoup:jsoup:1.23.2'
+    implementation 'org.codehaus.groovy:groovy:3.0.25'
+    implementation 'org.codehaus.groovy:groovy-xml:3.0.25'
+    implementation 'org.slf4j:slf4j-simple:1.7.36'
+
+    testImplementation platform('org.junit:junit-bom:6.0.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+}
