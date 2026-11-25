@@ -1,22 +1,27 @@
 package br.com.zg.crawler.service
 
+import br.com.zg.crawler.model.VersaoTiss
+import br.com.zg.crawler.parser.TissRegexParser
+import br.com.zg.crawler.util.CsvWriter
 import br.com.zg.crawler.util.Downloader
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import br.com.zg.crawler.model.VersaoTiss
+import org.jsoup.select.Elements
+
 import java.time.YearMonth
-import br.com.zg.crawler.util.CsvWriter
 
 class TissCrawler {
 
     private final HttpService httpService
     private final Downloader downloader
     private final CsvWriter csvWriter
+    private final TissRegexParser regexParser
 
     TissCrawler() {
         this.httpService = new HttpService()
         this.downloader = new Downloader()
         this.csvWriter = new CsvWriter()
+        this.regexParser = new TissRegexParser()
     }
 
     void executarTask1() {
@@ -63,8 +68,8 @@ class TissCrawler {
     private String buscarUrlVersaoVigente(Document documentTiss) {
 
         Element linkVersao = documentTiss.select('a')
-                .find {
-                    it.text() =~ /versão .+\/\d{4}/
+                .find { Element elemento ->
+                    regexParser.contemPadraoVersaoVigente(elemento.text())
                 }
 
         if (!linkVersao) {
@@ -117,33 +122,30 @@ class TissCrawler {
 
         List<VersaoTiss> versoes = []
 
-        documentHistorico.select('table tr').each { linha ->
+        documentHistorico.select('table tr').each { Element linha ->
 
-            def celulas = linha.select('td')
+            Elements celulas = linha.select('td')
 
             if (celulas.size() < 3) {
                 return
             }
 
-            String competencia = extrairCompetencia(celulas[0].text())
+            String competencia = regexParser.extrairCompetencia(celulas[0].text())
 
             if (!competencia && celulas.size() > 1) {
-                competencia = extrairCompetencia(celulas[1].text())
+                competencia = regexParser.extrairCompetencia(celulas[1].text())
             }
 
             if (!competencia) {
                 return
             }
 
-            if (YearMonth.parse(
-                    converterCompetencia(competencia),
-                    java.time.format.DateTimeFormatter.ofPattern('MM/yyyy')
-            ).isBefore(YearMonth.of(2016, 1))) {
+            if (regexParser.converterCompetenciaParaAnoMes(competencia).isBefore(YearMonth.of(2016, 1))) {
                 return
             }
 
-            String publicacao = formatarData(celulas[1].text())
-            String inicioVigencia = formatarData(celulas[2].text())
+            String publicacao = regexParser.normalizarData(celulas[1].text())
+            String inicioVigencia = regexParser.normalizarData(celulas[2].text())
 
             versoes.add(
                     new VersaoTiss(
@@ -155,55 +157,6 @@ class TissCrawler {
         }
 
         return versoes
-    }
-
-    private String extrairCompetencia(String texto) {
-
-        def matcher = texto =~ /(?i)\b(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\s*\/\s*(\d{4})\b/
-
-        if (matcher.find()) {
-            return "${matcher.group(1).toLowerCase()}/${matcher.group(2)}"
-        }
-
-        return null
-    }
-
-    private String formatarData(String data) {
-
-        def matcher = data.trim() =~ /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
-
-        if (matcher.find()) {
-
-            String dia = matcher.group(1).padLeft(2, '0')
-            String mes = matcher.group(2).padLeft(2, '0')
-            String ano = matcher.group(3)
-
-            return "${dia}/${mes}/${ano}"
-        }
-
-        return data.trim()
-    }
-
-    private String converterCompetencia(String competencia) {
-
-        Map<String, String> meses = [
-                jan: '01',
-                fev: '02',
-                mar: '03',
-                abr: '04',
-                mai: '05',
-                jun: '06',
-                jul: '07',
-                ago: '08',
-                set: '09',
-                out: '10',
-                nov: '11',
-                dez: '12'
-        ]
-
-        def partes = competencia.split('/')
-
-        return "${meses[partes[0]]}/${partes[1]}"
     }
 
     void executarTask3() {
