@@ -1,9 +1,10 @@
 package br.com.zg.crawler.service
 
+import br.com.zg.crawler.exporter.CsvHistoricoExporter
+import br.com.zg.crawler.exporter.HistoricoExporter
 import br.com.zg.crawler.model.VersaoTiss
 import br.com.zg.crawler.parser.TissHtmlParser
 import br.com.zg.crawler.parser.TissRegexParser
-import br.com.zg.crawler.util.CsvWriter
 import org.jsoup.nodes.Document
 
 import java.time.YearMonth
@@ -11,13 +12,13 @@ import java.time.YearMonth
 class TissCrawler {
 
     private final HttpService httpService
-    private final CsvWriter csvWriter
+    private final HistoricoExporter historicoExporter
     private final TissRegexParser regexParser
     private final TissHtmlParser htmlParser
 
     TissCrawler() {
         this.httpService = new HttpService()
-        this.csvWriter = new CsvWriter()
+        this.historicoExporter = new CsvHistoricoExporter()
         this.regexParser = new TissRegexParser()
         this.htmlParser = new TissHtmlParser(this.regexParser)
     }
@@ -64,7 +65,7 @@ class TissCrawler {
                 }
 
         String caminhoCsv = './Downloads/Historico_TISS/historico_tiss.csv'
-        csvWriter.salvarHistorico(versoes, caminhoCsv)
+        historicoExporter.exportar(versoes, caminhoCsv)
 
         println "Task 2 concluída com sucesso."
     }
