@@ -1,5 +1,8 @@
 package br.com.zg.crawler.model
 
+import groovy.transform.EqualsAndHashCode
+
+@EqualsAndHashCode
 class VersaoTiss {
 
     String competencia

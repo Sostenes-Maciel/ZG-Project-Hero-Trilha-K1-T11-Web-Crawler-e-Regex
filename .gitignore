@@ -41,3 +41,7 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Downloads ###
+Downloads/
+src/main/groovy/br/com/zg/crawler/Downloads/
