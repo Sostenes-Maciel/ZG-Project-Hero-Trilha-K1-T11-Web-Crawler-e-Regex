@@ -2,8 +2,13 @@ package br.com.zg.crawler
 
 import br.com.zg.crawler.service.TissCrawler
 
-def crawler = new TissCrawler()
+class Main {
 
-crawler.executarTask1()
-crawler.executarTask2()
-crawler.executarTask3()
+    static void main(String[] args) {
+        TissCrawler crawler = new TissCrawler()
+
+        crawler.baixarComponenteComunicacaoVigente()
+        crawler.exportarHistoricoVersoes()
+        crawler.baixarTabelaErrosEnvio()
+    }
+}

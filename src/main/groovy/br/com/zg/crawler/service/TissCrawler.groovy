@@ -1,246 +1,110 @@
 package br.com.zg.crawler.service
 
-import br.com.zg.crawler.util.Downloader
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
+import br.com.zg.crawler.exporter.CsvHistoricoExporter
+import br.com.zg.crawler.exporter.HistoricoExporter
 import br.com.zg.crawler.model.VersaoTiss
+import br.com.zg.crawler.parser.TissHtmlParser
+import br.com.zg.crawler.parser.TissRegexParser
+import org.jsoup.nodes.Document
+
 import java.time.YearMonth
-import br.com.zg.crawler.util.CsvWriter
 
 class TissCrawler {
 
+    private static final String URL_ANS = 'https://www.gov.br/ans/pt-br'
+    private static final String TEXTO_LINK_PRESTADOR = 'Espaço do Prestador de Serviços de Saúde'
+    private static final String TEXTO_LINK_TISS = 'TISS - Padrão para Troca de Informação de Saúde Suplementar'
+    private static final String TEXTO_LINK_HISTORICO = 'todas as versões'
+    private static final String TEXTO_LINK_TABELAS = 'acessar as planilhas'
+    private static final String TEXTO_LINK_ERROS = 'tabela de erros no envio para a ans'
+
+    private static final String DIRETORIO_PADRAO_TISS = './Downloads/Arquivos_padrao_TISS'
+    private static final String CAMINHO_HISTORICO_CSV = './Downloads/Historico_TISS/historico_tiss.csv'
+    private static final String DIRETORIO_TABELAS_RELACIONADAS = './Downloads/Tabelas_relacionadas'
+
+    private static final YearMonth COMPETENCIA_MINIMA_PADRAO = YearMonth.of(2016, 1)
+
     private final HttpService httpService
-    private final Downloader downloader
-    private final CsvWriter csvWriter
+    private final HistoricoExporter historicoExporter
+    private final TissRegexParser regexParser
+    private final TissHtmlParser htmlParser
 
-    TissCrawler() {
-        this.httpService = new HttpService()
-        this.downloader = new Downloader()
-        this.csvWriter = new CsvWriter()
+    private Document paginaTissCache
+
+    TissCrawler(
+            HttpService httpService = new HttpService(),
+            HistoricoExporter historicoExporter = new CsvHistoricoExporter(),
+            TissRegexParser regexParser = new TissRegexParser(),
+            TissHtmlParser htmlParser = null
+    ) {
+        this.httpService = httpService
+        this.historicoExporter = historicoExporter
+        this.regexParser = regexParser
+        this.htmlParser = htmlParser ?: new TissHtmlParser(this.regexParser)
     }
 
-    void executarTask1() {
+    File baixarComponenteComunicacaoVigente() {
+        Document paginaTiss = obterPaginaTiss()
+        String urlVersao = htmlParser.extrairUrlVersaoVigente(paginaTiss)
 
-        Document documentTiss = acessarPaginaTiss()
-        String urlVersao = buscarUrlVersaoVigente(documentTiss)
+        Document paginaVersao = httpService.obterDocumento(urlVersao)
+        String urlComunicacao = htmlParser.extrairUrlComponenteComunicacao(paginaVersao)
 
-        Document documentVersao = httpService.getDocument(urlVersao)
+        File arquivoBaixado = httpService.baixarArquivo(urlComunicacao, DIRETORIO_PADRAO_TISS)
 
-        Element linhaComunicacao = buscarLinhaComunicacao(documentVersao)
-
-        String urlComunicacao = linhaComunicacao.select('a').first().attr('abs:href')
-
-        String nomeArquivo = urlComunicacao.tokenize('/').last()
-
-        String caminho = "./Downloads/Aquivos_padrao_TISS/${nomeArquivo}"
-
-        downloader.baixar(urlComunicacao, caminho)
-
-        println "Task 1 concluída com sucesso."
+        println 'Download do Componente de Comunicação concluído com sucesso.'
+        return arquivoBaixado
     }
 
-    private Document acessarPaginaTiss() {
+    File exportarHistoricoVersoes(YearMonth competenciaMinima = COMPETENCIA_MINIMA_PADRAO) {
+        Document paginaTiss = obterPaginaTiss()
+        String urlHistorico = htmlParser.extrairLinkPorTexto(paginaTiss, TEXTO_LINK_HISTORICO)
 
-        String urlAns = 'https://www.gov.br/ans/pt-br'
+        Document paginaHistorico = httpService.obterDocumento(urlHistorico)
+        List<VersaoTiss> todasVersoes = htmlParser.extrairTabelaHistorico(paginaHistorico)
+        List<VersaoTiss> versoesFiltradas = filtrarVersoesAPartirDe(todasVersoes, competenciaMinima)
 
-        Document documentAns = httpService.getDocument(urlAns)
+        File arquivoCsv = historicoExporter.exportar(versoesFiltradas, CAMINHO_HISTORICO_CSV)
 
-        Element linkPrestador = documentAns.select('a')
-                .find { it.text().contains('Espaço do Prestador de Serviços de Saúde') }
-
-        String urlPrestador = linkPrestador.attr('abs:href')
-
-        Document documentPrestador = httpService.getDocument(urlPrestador)
-
-        Element linkTiss = documentPrestador.select('a')
-                .find { it.text().contains('TISS - Padrão para Troca de Informação de Saúde Suplementar') }
-
-        String urlTiss = linkTiss.attr('abs:href')
-
-        return httpService.getDocument(urlTiss)
+        println 'Exportação do histórico de versões concluída com sucesso.'
+        return arquivoCsv
     }
 
-    private String buscarUrlVersaoVigente(Document documentTiss) {
+    File baixarTabelaErrosEnvio() {
+        Document paginaTiss = obterPaginaTiss()
+        String urlTabelas = htmlParser.extrairLinkPorTexto(paginaTiss, TEXTO_LINK_TABELAS)
 
-        Element linkVersao = documentTiss.select('a')
-                .find {
-                    it.text() =~ /versão .+\/\d{4}/
-                }
+        Document paginaTabelas = httpService.obterDocumento(urlTabelas)
+        String urlErros = htmlParser.extrairLinkPorTexto(paginaTabelas, TEXTO_LINK_ERROS)
 
-        if (!linkVersao) {
-            throw new IllegalStateException('Link da versão vigente não encontrado.')
+        File arquivoBaixado = httpService.baixarArquivo(urlErros, DIRETORIO_TABELAS_RELACIONADAS)
+
+        println 'Download da Tabela de Erros concluído com sucesso.'
+        return arquivoBaixado
+    }
+
+    List<VersaoTiss> filtrarVersoesAPartirDe(List<VersaoTiss> versoes, YearMonth competenciaMinima) {
+        return versoes.findAll { VersaoTiss versao ->
+            YearMonth competenciaVersao = regexParser.converterCompetenciaParaAnoMes(versao.competencia)
+            !competenciaVersao.isBefore(competenciaMinima)
+        }
+    }
+
+    private Document obterPaginaTiss() {
+        if (paginaTissCache == null) {
+            paginaTissCache = navegarAtePaginaTiss()
         }
 
-        return linkVersao.attr('abs:href')
+        return paginaTissCache
     }
 
-    private Element buscarLinhaComunicacao(Document documentVersao) {
+    private Document navegarAtePaginaTiss() {
+        Document paginaAns = httpService.obterDocumento(URL_ANS)
+        String urlPrestador = htmlParser.extrairLinkPorTexto(paginaAns, TEXTO_LINK_PRESTADOR)
 
-        Element linha = documentVersao.select('table tr')
-                .find {
-                    it.select('td').first()?.text()?.contains('Componente de Comunicação')
-                }
+        Document paginaPrestador = httpService.obterDocumento(urlPrestador)
+        String urlTiss = htmlParser.extrairLinkPorTexto(paginaPrestador, TEXTO_LINK_TISS)
 
-        if (!linha) {
-            throw new IllegalStateException('Componente de Comunicação não encontrado.')
-        }
-
-        return linha
+        return httpService.obterDocumento(urlTiss)
     }
-
-    void executarTask2() {
-
-        Document documentTiss = acessarPaginaTiss()
-
-        Element linkHistorico = documentTiss.select('a')
-                .find {
-                    it.text().contains('todas as versões')
-                }
-
-        if (!linkHistorico) {
-            throw new IllegalStateException('Link do histórico não encontrado.')
-        }
-
-        String urlHistorico = linkHistorico.attr('abs:href')
-
-        Document documentHistorico = httpService.getDocument(urlHistorico)
-
-        List<VersaoTiss> versoes = extrairHistorico(documentHistorico)
-
-        String caminhoCsv = './Downloads/Historico_TISS/historico_tiss.csv'
-
-        csvWriter.salvarHistorico(versoes, caminhoCsv)
-
-        println "Task 2 concluída com sucesso."
-    }
-    private List<VersaoTiss> extrairHistorico(Document documentHistorico) {
-
-        List<VersaoTiss> versoes = []
-
-        documentHistorico.select('table tr').each { linha ->
-
-            def celulas = linha.select('td')
-
-            if (celulas.size() < 3) {
-                return
-            }
-
-            String competencia = extrairCompetencia(celulas[0].text())
-
-            if (!competencia && celulas.size() > 1) {
-                competencia = extrairCompetencia(celulas[1].text())
-            }
-
-            if (!competencia) {
-                return
-            }
-
-            if (YearMonth.parse(
-                    converterCompetencia(competencia),
-                    java.time.format.DateTimeFormatter.ofPattern('MM/yyyy')
-            ).isBefore(YearMonth.of(2016, 1))) {
-                return
-            }
-
-            String publicacao = formatarData(celulas[1].text())
-            String inicioVigencia = formatarData(celulas[2].text())
-
-            versoes.add(
-                    new VersaoTiss(
-                            competencia,
-                            publicacao,
-                            inicioVigencia
-                    )
-            )
-        }
-
-        return versoes
-    }
-
-    private String extrairCompetencia(String texto) {
-
-        def matcher = texto =~ /(?i)\b(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\s*\/\s*(\d{4})\b/
-
-        if (matcher.find()) {
-            return "${matcher.group(1).toLowerCase()}/${matcher.group(2)}"
-        }
-
-        return null
-    }
-
-    private String formatarData(String data) {
-
-        def matcher = data.trim() =~ /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
-
-        if (matcher.find()) {
-
-            String dia = matcher.group(1).padLeft(2, '0')
-            String mes = matcher.group(2).padLeft(2, '0')
-            String ano = matcher.group(3)
-
-            return "${dia}/${mes}/${ano}"
-        }
-
-        return data.trim()
-    }
-
-    private String converterCompetencia(String competencia) {
-
-        Map<String, String> meses = [
-                jan: '01',
-                fev: '02',
-                mar: '03',
-                abr: '04',
-                mai: '05',
-                jun: '06',
-                jul: '07',
-                ago: '08',
-                set: '09',
-                out: '10',
-                nov: '11',
-                dez: '12'
-        ]
-
-        def partes = competencia.split('/')
-
-        return "${meses[partes[0]]}/${partes[1]}"
-    }
-
-    void executarTask3() {
-
-        Document documentTiss = acessarPaginaTiss()
-
-        Element linkTabelas = documentTiss.select('a')
-                .find {
-                    it.text().contains('acessar as planilhas')
-                }
-
-        if (!linkTabelas) {
-            throw new IllegalStateException('Link das tabelas relacionadas não encontrado.')
-        }
-
-        String urlTabelas = linkTabelas.attr('abs:href')
-
-        Document documentTabelas = httpService.getDocument(urlTabelas)
-
-        Element linkErros = documentTabelas.select('a')
-                .find {
-                    it.text().toLowerCase().contains('tabela de erros no envio para a ans')
-                }
-
-        if (!linkErros) {
-            throw new IllegalStateException('Tabela de erros no envio para a ANS não encontrada.')
-        }
-
-        String urlErros = linkErros.attr('abs:href')
-
-        String nomeArquivo = urlErros.tokenize('/').last()
-
-        String caminho = "./Downloads/Tabelas_relacionadas/${nomeArquivo}"
-
-        downloader.baixar(urlErros, caminho)
-
-        println "Task 3 concluída com sucesso."
-    }
-
 }
